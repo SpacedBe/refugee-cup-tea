@@ -1,4 +1,5 @@
 const chat = require('./lib/chat');
+const fb = require('./lib/fb');
 const watson = require('./lib/watson');
 
 const express = require('express');
@@ -19,7 +20,7 @@ app.get('/', (req, res) => {
 
 /* SETUP ROUTES MESSENGER */
 
-chat.setGreeting('Hello!');
+fb.setGreeting('Cuppa connects female refugees with women in their local communities for a chat over a cup of tea!');
 watson.setup();
 
 app.get('/webhook', (req, res) => {
