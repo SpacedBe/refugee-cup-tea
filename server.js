@@ -1,111 +1,57 @@
-var express = require("express");
-var app = express();
-var cfenv = require("cfenv");
-var bodyParser = require('body-parser')
+const chat = require('./lib/chat');
+const watson = require('./lib/watson');
+
+const express = require('express');
+const app = express();
+const bodyParser = require('body-parser');
 
 // parse application/x-www-form-urlencoded
-app.use(bodyParser.urlencoded({ extended: false }))
+app.use(bodyParser.urlencoded({ extended: false }));
 
 // parse application/json
-app.use(bodyParser.json())
+app.use(bodyParser.json());
 
-var mydb;
+let mydb;
 
-/* Endpoint to greet and add a new visitor to database.
-* Send a POST request to localhost:3000/api/visitors with body
-* {
-* 	"name": "Bob"
-* }
-*/
-app.post("/api/visitors", function (request, response) {
-  var userName = request.body.name;
-  if(!mydb) {
-    console.log("No database.");
-    response.send("Hello " + userName + "!");
-    return;
-  }
-  // insert the username as a document
-  mydb.insert({ "name" : userName }, function(err, body, header) {
-    if (err) {
-      return console.log('[mydb.insert] ', err.message);
-    }
-    response.send("Hello " + userName + "! I added you to the database.");
-  });
+app.get('/', (req, res) => {
+  res.status(200).send('its working');
 });
 
-/**
- * Endpoint to get a JSON array of all the visitors in the database
- * REST API example:
- * <code>
- * GET http://localhost:3000/api/visitors
- * </code>
- *
- * Response:
- * [ "Bob", "Jane" ]
- * @return An array of all the visitor names
- */
-app.get("/api/visitors", function (request, response) {
-  var names = [];
-  if(!mydb) {
-    response.json(names);
-    return;
-  }
+/* SETUP ROUTES MESSENGER */
 
-  mydb.list({ include_docs: true }, function(err, body) {
-    if (!err) {
-      body.rows.forEach(function(row) {
-        if(row.doc.name)
-          names.push(row.doc.name);
-      });
-      response.json(names);
-    }
+chat.setGreeting('Hello!');
+watson.setup();
+
+app.get('/webhook', (req, res) => {
+  const verified = chat.verify({
+    mode: req.query['hub.mode'],
+    token: req.query['hub.verify_token'],
+    challenge: req.query['hub.challenge'],
   });
-});
 
-
-// load local VCAP configuration  and service credentials
-var vcapLocal;
-try {
-  vcapLocal = require('./vcap-local.json');
-  console.log("Loaded local VCAP", vcapLocal);
-} catch (e) { }
-
-const appEnvOpts = vcapLocal ? { vcap: vcapLocal} : {}
-
-const appEnv = cfenv.getAppEnv(appEnvOpts);
-
-if (appEnv.services['cloudantNoSQLDB'] || appEnv.getService(/cloudant/)) {
-  // Load the Cloudant library.
-  var Cloudant = require('cloudant');
-
-  // Initialize database with credentials
-  if (appEnv.services['cloudantNoSQLDB']) {
-     // CF service named 'cloudantNoSQLDB'
-     var cloudant = Cloudant(appEnv.services['cloudantNoSQLDB'][0].credentials);
+  if (verified) {
+    res.status(200).send(verified);
   } else {
-     // user-provided service with 'cloudant' in its name
-     var cloudant = Cloudant(appEnv.getService(/cloudant/).credentials);
+    res.status(200).send('no query params');
   }
+});
 
-  //database name
-  var dbName = 'mydb';
+app.post('/webhook', (req, res) => {
+  let body = req.body;
 
-  // Create a new "mydb" database.
-  cloudant.db.create(dbName, function(err, data) {
-    if(!err) //err if database doesn't already exists
-      console.log("Created database: " + dbName);
-  });
+  if (body.object === 'page') {
+    body.entry.forEach(function (entry) {
+      chat.processEntry(entry);
+    });
 
-  // Specify the database we are going to use (mydb)...
-  mydb = cloudant.db.use(dbName);
-}
+    res.status(200).send('EVENT_RECEIVED');
+  } else {
+    res.sendStatus(404);
+  }
+});
 
-//serve static file (index.html, images, css)
-app.use(express.static(__dirname + '/views'));
+const port = process.env.PORT || 3000;
 
-
-
-var port = process.env.PORT || 3000
-app.listen(port, function() {
-    console.log("To view your app, open this link in your browser: http://localhost:" + port);
+app.listen(port, function () {
+  console.log('To view your app, open this link in your browser: http://localhost:' + port);
 });
